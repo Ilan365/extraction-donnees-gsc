@@ -119,35 +119,12 @@ def authenticate_gsc():
     SCOPES = ['https://www.googleapis.com/auth/webmasters']
     creds = None
     
-    # Vérifier s'il s'agit d'un environnement local ou déployé
-    is_local = not os.environ.get('STREAMLIT_SHARING', False)
-    
-    # Pour l'environnement local
-    if is_local:
-        # Code existant pour l'authentification locale...
-        if os.path.exists('token.pickle'):
-            with open('token.pickle', 'rb') as token:
-                creds = pickle.load(token)
-        
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    'credentials.json', SCOPES)
-                creds = flow.run_local_server(port=8080)
-            
-            with open('token.pickle', 'wb') as token:
-                pickle.dump(creds, token)
-    
-    # Pour l'environnement déployé (Streamlit Cloud)
-    else:
-        # Utiliser les secrets Streamlit pour les identifiants
-        from google.oauth2.credentials import Credentials
-        from google_auth_oauthlib.flow import Flow
-        
-        # Vérifier si un token existe dans les secrets
+    # Vérifier si nous sommes dans l'environnement Streamlit Cloud
+    try:
+        # Tenter d'accéder aux secrets Streamlit
         if 'token' in st.secrets:
+            from google.oauth2.credentials import Credentials
+            
             creds = Credentials(
                 token=st.secrets.token.get('token', None),
                 refresh_token=st.secrets.token.get('refresh_token', None),
@@ -156,11 +133,39 @@ def authenticate_gsc():
                 client_secret=st.secrets.credentials.get('client_secret', None),
                 scopes=SCOPES
             )
-        else:
-            st.error("Aucun token d'authentification n'est configuré pour l'environnement déployé.")
-            st.info("Veuillez suivre les instructions de configuration des secrets Streamlit.")
-            st.stop()
             
+            st.success("Authentification via Streamlit Secrets réussie!")
+            
+    except Exception as e:
+        # Utiliser la méthode locale si les secrets ne sont pas disponibles
+        st.info("Utilisation de l'authentification locale.")
+        
+        if os.path.exists('token.pickle'):
+            with open('token.pickle', 'rb') as token:
+                creds = pickle.load(token)
+                
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                if not os.path.exists('credentials.json'):
+                    st.error("Le fichier credentials.json n'existe pas pour l'authentification locale.")
+                    st.info("Veuillez configurer les secrets Streamlit ou fournir le fichier credentials.json.")
+                    st.stop()
+                    
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    'credentials.json', SCOPES)
+                creds = flow.run_local_server(port=8080)
+                
+            with open('token.pickle', 'wb') as token:
+                pickle.dump(creds, token)
+    
+    # Si nous n'avons toujours pas de credentials valides
+    if not creds:
+        st.error("Impossible d'authentifier à l'API Google Search Console.")
+        st.info("Veuillez configurer les secrets Streamlit ou utiliser l'application localement.")
+        st.stop()
+    
     service = build('searchconsole', 'v1', credentials=creds)
     return service
 
@@ -415,27 +420,9 @@ def get_excel_download_link(dataframes, sheet_names, filename, text):
 
 # Fonction principale
 def main():
-    # Vérifier si le fichier credentials.json existe
-    if not os.path.exists('credentials.json'):
-        st.error("Le fichier credentials.json n'existe pas. Veuillez le télécharger depuis la console Google Cloud et le placer dans le répertoire de ce script.")
-        st.info("Instructions pour obtenir le fichier credentials.json:")
-        st.markdown("""
-        1. Allez sur la [Google Cloud Console](https://console.cloud.google.com/)
-        2. Créez un nouveau projet ou sélectionnez un projet existant
-        3. Dans le menu de navigation, allez à "APIs & Services" > "Credentials"
-        4. Cliquez sur "Create Credentials" et sélectionnez "OAuth client ID"
-        5. Configurez l'écran de consentement OAuth si nécessaire
-        6. Pour le type d'application, sélectionnez "Desktop application"
-        7. Nommez votre client OAuth et cliquez sur "Create"
-        8. Téléchargez le fichier JSON et renommez-le en "credentials.json"
-        9. Placez le fichier dans le même répertoire que ce script
-        """)
-        return
-
     # Tentative d'authentification
     try:
         service = authenticate_gsc()
-        st.success("Authentification réussie à l'API Google Search Console!")
         
         # Récupération des propriétés
         properties = get_properties(service)

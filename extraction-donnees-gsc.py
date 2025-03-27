@@ -119,24 +119,48 @@ def authenticate_gsc():
     SCOPES = ['https://www.googleapis.com/auth/webmasters']
     creds = None
     
-    # Le fichier token.pickle stocke les jetons d'accès et d'actualisation de l'utilisateur
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
-            creds = pickle.load(token)
+    # Vérifier s'il s'agit d'un environnement local ou déployé
+    is_local = not os.environ.get('STREAMLIT_SHARING', False)
     
-    # Si aucun identifiant valide n'est disponible, l'utilisateur se connecte
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
-            creds = flow.run_local_server(port=8080)
+    # Pour l'environnement local
+    if is_local:
+        # Code existant pour l'authentification locale...
+        if os.path.exists('token.pickle'):
+            with open('token.pickle', 'rb') as token:
+                creds = pickle.load(token)
         
-        # Enregistrement des identifiants pour la prochaine exécution
-        with open('token.pickle', 'wb') as token:
-            pickle.dump(creds, token)
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    'credentials.json', SCOPES)
+                creds = flow.run_local_server(port=8080)
+            
+            with open('token.pickle', 'wb') as token:
+                pickle.dump(creds, token)
     
+    # Pour l'environnement déployé (Streamlit Cloud)
+    else:
+        # Utiliser les secrets Streamlit pour les identifiants
+        from google.oauth2.credentials import Credentials
+        from google_auth_oauthlib.flow import Flow
+        
+        # Vérifier si un token existe dans les secrets
+        if 'token' in st.secrets:
+            creds = Credentials(
+                token=st.secrets.token.get('token', None),
+                refresh_token=st.secrets.token.get('refresh_token', None),
+                token_uri=st.secrets.token.get('token_uri', 'https://oauth2.googleapis.com/token'),
+                client_id=st.secrets.credentials.get('client_id', None),
+                client_secret=st.secrets.credentials.get('client_secret', None),
+                scopes=SCOPES
+            )
+        else:
+            st.error("Aucun token d'authentification n'est configuré pour l'environnement déployé.")
+            st.info("Veuillez suivre les instructions de configuration des secrets Streamlit.")
+            st.stop()
+            
     service = build('searchconsole', 'v1', credentials=creds)
     return service
 
